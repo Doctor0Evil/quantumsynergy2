@@ -1,0 +1,113 @@
+name: Deploy ALN Ecosystem
+
+on:
+  push:
+    branches:
+      - develop
+      - main
+
+permissions:
+  contents: read
+  id-token: write
+  packages: write
+
+env:
+  ALN_VERSION: "6.0.0"
+
+jobs:
+  build-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+        with:
+          install: true
+          driver-opts: |
+            image=moby/buildkit:latest
+            network=host
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push multi-arch image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          platforms: linux/amd64,linux/arm64
+          build-args: |
+            ALN_VERSION=${{ env.ALN_VERSION }}
+          tags: |
+            ghcr.io/${{ github.repository }}/aln-core:${{ github.sha }}
+            ghcr.io/${{ github.repository }}/aln-core:${{ env.ALN_VERSION }}
+          provenance: true
+          sbom: true
+
+      - name: Scan image with Trivy
+        uses: aquasecurity/trivy-action@v0.24.0
+        with:
+          scan-type: image
+          image-ref: ghcr.io/${{ github.repository }}/aln-core:${{ github.sha }}
+          format: table
+          vuln-type: os,library
+          severity: CRITICAL,HIGH
+
+      - name: Setup kubectl
+        uses: azure/setup-kubectl@v4
+        with:
+          version: v1.30.0
+
+      - name: Setup Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: v3.15.0
+
+      - name: Configure kubeconfig from OIDC
+        uses: azure/k8s-set-context@v4
+        with:
+          method: kubeconfig
+          kubeconfig: ${{ secrets.KUBECONFIG_BASE64 }}
+
+      - name: Apply Kyverno and OPA policies
+        run: |
+          kubectl apply -f ci/policies/kyverno/no_plaintext_secrets.yaml
+          kubectl apply -f ci/policies/kyverno/enforce_resource_limits.yaml
+          kubectl apply -f ci/policies/opa/require_signed_images.rego
+
+      - name: Deploy to staging via Helm
+        if: github.ref == 'refs/heads/develop'
+        run: |
+          kubectl apply -f k8s-manifests/namespace-staging.yaml
+          kubectl apply -f k8s-manifests/secrets.enc.yaml
+          helm upgrade --install aln-core ./helm/aln-ecosystem \
+            --namespace aln-staging \
+            -f ./helm/aln-ecosystem/values-prod.yaml \
+            --set image.repository=ghcr.io/${{ github.repository }}/aln-core \
+            --set image.tag=${{ github.sha }}
+
+      - name: Deploy to prod via Helm
+        if: github.ref == 'refs/heads/main'
+        run: |
+          kubectl apply -f k8s-manifests/namespace-prod.yaml
+          kubectl apply -f k8s-manifests/secrets.enc.yaml
+          helm upgrade --install aln-core ./helm/aln-ecosystem \
+            --namespace aln-ecosystem \
+            -f ./helm/aln-ecosystem/values-prod.yaml \
+            --set image.repository=ghcr.io/${{ github.repository }}/aln-core \
+            --set image.tag=${{ github.sha }}
+
+      - name: Apply Argo Rollout template (prod)
+        if: github.ref == 'refs/heads/main'
+        run: |
+          kubectl apply -n aln-ecosystem -f ci/templates/argo-rollout.yaml
