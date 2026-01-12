@@ -1,0 +1,43 @@
+image:
+  repository: ghcr.io/example/aln-core
+  tag: "6.0.0"
+  pullPolicy: IfNotPresent
+
+replicaCount: 3
+
+service:
+  type: ClusterIP
+  port: 80
+  targetPort: 8080
+
+resources:
+  requests:
+    cpu: "100m"
+    memory: "256Mi"
+  limits:
+    cpu: "500m"
+    memory: "512Mi"
+
+ingress:
+  enabled: false
+
+metrics:
+  enabled: true
+  path: /metrics
+  port: 8080
+
+rbac:
+  create: true
+  serviceAccountName: aln-core
+
+hpa:
+  enabled: true
+  minReplicas: 3
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 70
+
+networkPolicy:
+  enabled: true
+  allowedNamespaces:
+    - kube-system
+    - monitoring
