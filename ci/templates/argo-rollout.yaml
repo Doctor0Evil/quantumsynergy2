@@ -1,0 +1,33 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Rollout
+metadata:
+  name: aln-core
+spec:
+  replicas: 3
+  strategy:
+    blueGreen:
+      activeService: aln-core
+      previewService: aln-core-preview
+      autoPromotionEnabled: true
+  selector:
+    matchLabels:
+      app: aln-core
+  template:
+    metadata:
+      labels:
+        app: aln-core
+    spec:
+      containers:
+        - name: aln-core
+          image: ghcr.io/example/aln-core:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8080
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 8080
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
