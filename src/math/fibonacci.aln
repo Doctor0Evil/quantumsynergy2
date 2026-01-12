@@ -1,0 +1,20 @@
+module math.fibonacci
+
+fn fib(n: u32) -> u64 {
+    if n == 0 {
+        return 0
+    }
+    if n == 1 {
+        return 1
+    }
+    let mut a: u64 = 0
+    let mut b: u64 = 1
+    let mut i: u32 = 2
+    while i <= n {
+        let next: u64 = a + b
+        a = b
+        b = next
+        i = i + 1
+    }
+    return b
+}
