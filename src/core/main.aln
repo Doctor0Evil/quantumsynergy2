@@ -1,0 +1,35 @@
+module core.main
+
+import math.fibonacci
+
+fn handle_health() -> HttpResponse {
+    HttpResponse {
+        status: 200,
+        body: "OK"
+    }
+}
+
+fn handle_ready() -> HttpResponse {
+    HttpResponse {
+        status: 200,
+        body: "READY"
+    }
+}
+
+fn handle_metrics() -> HttpResponse {
+    let value = math.fibonacci::fib(10)
+    let body = "aln_example_fib_10 " + value.to_string()
+    HttpResponse {
+        status: 200,
+        body: body
+    }
+}
+
+fn main() {
+    let server = HttpServer::new()
+        .route("GET", "/health", handle_health)
+        .route("GET", "/ready", handle_ready)
+        .route("GET", "/metrics", handle_metrics)
+
+    server.listen("0.0.0.0:8080")
+}
